@@ -58,6 +58,7 @@ import com.fadcam.Utils;
 // Import the new VideoItem class
 // Ensure adapter import is correct
 import com.fadcam.utils.TrashManager; // <<< ADD IMPORT FOR TrashManager
+import com.fadcam.service.FileOperationService;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
@@ -297,6 +298,7 @@ public class RecordsFragment extends BaseFragment implements
     private LinearLayout emptyStateContainer; // Add field for the empty state layout
     private RecordsAdapter recordsAdapter;
     private boolean isGridView = true;
+    private FloatingActionButton fabSaveSelected;
     private FloatingActionButton fabDeleteSelected;
     private FloatingActionButton fabScrollNavigation; // Navigation FAB for scroll to top/bottom
     private boolean isScrollingDown = true; // Track scroll direction for FAB icon
@@ -862,6 +864,7 @@ public class RecordsFragment extends BaseFragment implements
         recyclerView = view.findViewById(R.id.recycler_view_records);
         swipeRefreshLayout = view.findViewById(R.id.swipe_refresh_layout);
         emptyStateContainer = view.findViewById(R.id.empty_state_container);
+        fabSaveSelected = view.findViewById(R.id.fab_save_selected);
         fabDeleteSelected = view.findViewById(R.id.fab_delete_selected);
         fabScrollNavigation = view.findViewById(R.id.fab_scroll_navigation);
         applockOverlay = view.findViewById(R.id.applock_overlay);
@@ -1336,6 +1339,20 @@ public class RecordsFragment extends BaseFragment implements
         Log.d(TAG, "Setting up FAB listeners.");
         // Ensure FABs are not null before setting listeners
         // removed FAB toggle; use side sheet's View mode row
+
+        if (fabSaveSelected != null) {
+            fabSaveSelected.setOnClickListener(v -> {
+                Log.d(TAG, "fabSaveSelected CLICKED!");
+                if (!isAdded() || getContext() == null) {
+                    Log.e(TAG, "fabSaveSelected clicked but fragment not ready!");
+                    return;
+                }
+                showSaveSelectedDialog();
+            });
+            Log.d(TAG, "FAB Save listener set.");
+        } else {
+            Log.w(TAG, "fabSaveSelected is null in setupFabListeners (Might be initially GONE).");
+        }
 
         if (fabDeleteSelected != null) {
             fabDeleteSelected.setOnClickListener(v -> {
@@ -1851,6 +1868,7 @@ public class RecordsFragment extends BaseFragment implements
         if (isInSelectionMode) {
             int count = selectedUris.size();
             titleText.setText(count > 0 ? count + " selected" : "Select items");
+            fabSaveSelected.setVisibility(count > 0 ? View.VISIBLE : View.GONE);
             fabDeleteSelected.setVisibility(count > 0 ? View.VISIBLE : View.GONE);
             // FAB removed
             // Show left-side close button and hide more-options
@@ -1879,6 +1897,7 @@ public class RecordsFragment extends BaseFragment implements
             }
         } else {
             titleText.setText(originalToolbarTitle != null ? originalToolbarTitle : getString(R.string.records_title));
+            fabSaveSelected.setVisibility(View.GONE);
             fabDeleteSelected.setVisibility(View.GONE);
             // FAB removed
             // Restore more-options icon and hide close button
@@ -1967,6 +1986,107 @@ public class RecordsFragment extends BaseFragment implements
                 });
             }
         });
+    }
+
+    /**
+     * Shows a dialog to select save option (copy or move) for selected videos
+     */
+    private void showSaveSelectedDialog() {
+        vibrate();
+        if (!isAdded() || getContext() == null || selectedUris.isEmpty()) {
+            Log.w(TAG, "showSaveSelectedDialog called but cannot proceed (not attached, context null, or selection empty).");
+            return;
+        }
+        int count = selectedUris.size();
+        Log.d(TAG, "Showing save options for " + count + " items.");
+
+        // Create options for copy or move
+        ArrayList<OptionItem> items = new ArrayList<>();
+
+        // Copy option
+        items.add(new OptionItem(
+                "save_copy_multi",
+                getString(R.string.video_menu_save_copy),
+                getString(R.string.video_menu_save_copy_desc),
+                null, null, null, null, null,
+                "content_copy",
+                null, null, null));
+
+        // Move option
+        items.add(new OptionItem(
+                "save_move_multi",
+                getString(R.string.video_menu_save_move),
+                getString(R.string.video_menu_save_move_desc),
+                null, null, null, null, null,
+                "drive_file_move",
+                null, null, null));
+
+        String resultKey = "save_options_multi:" + System.currentTimeMillis();
+        if (!(getContext() instanceof FragmentActivity)) {
+            Log.e(TAG, "Context is not FragmentActivity");
+            return;
+        }
+
+        FragmentManager fm = ((FragmentActivity) getContext()).getSupportFragmentManager();
+        fm.setFragmentResultListener(resultKey, (FragmentActivity) getContext(), (requestKey, bundle) -> {
+            if (bundle == null) return;
+            String id = bundle.getString(PickerBottomSheetFragment.BUNDLE_SELECTED_ID);
+            if (id == null) return;
+
+            boolean isCopy = "save_copy_multi".equals(id);
+            saveSelectedVideos(isCopy);
+        });
+
+        String sheetTitle = getString(R.string.video_menu_save_copy_or_move_title);
+        PickerBottomSheetFragment sheet = PickerBottomSheetFragment.newInstanceGradient(
+                sheetTitle,
+                items,
+                "save_copy_multi", // Default selection is copy
+                resultKey,
+                null,
+                true);
+
+        // Hide selection checkmarks
+        Bundle args = sheet.getArguments();
+        if (args != null) {
+            args.putBoolean(PickerBottomSheetFragment.ARG_HIDE_CHECK, true);
+        }
+
+        sheet.show(fm, "save_options_multi_sheet");
+    }
+
+    /**
+     * Saves selected videos to gallery (copy or move)
+     */
+    private void saveSelectedVideos(boolean isCopy) {
+        final List<Uri> itemsToSaveUris = new ArrayList<>(selectedUris);
+        if (itemsToSaveUris.isEmpty()) {
+            Log.d(TAG, "Save requested but selectedUris is empty.");
+            exitSelectionMode();
+            return;
+        }
+
+        Log.i(TAG, "Starting batch save for " + itemsToSaveUris.size() + " videos (Copy: " + isCopy + ")");
+        exitSelectionMode();
+
+        // Get file names for the selected videos
+        for (Uri uri : itemsToSaveUris) {
+            VideoItem videoItem = findVideoItemByUri(videoItems, uri);
+            if (videoItem != null) {
+                if (isCopy) {
+                    FileOperationService.startCopyToGallery(getContext(), videoItem.uri, videoItem.displayName, videoItem.displayName);
+                } else {
+                    FileOperationService.startMoveToGallery(getContext(), videoItem.uri, videoItem.displayName, videoItem.displayName);
+                }
+            } else {
+                Log.w(TAG, "Could not find VideoItem for URI: " + uri);
+            }
+        }
+
+        // Show completion message
+        String mode = isCopy ? getString(R.string.video_menu_save_copy) : getString(R.string.video_menu_save_move);
+        String message = getString(R.string.delete_videos_success_toast, itemsToSaveUris.size());
+        Toast.makeText(getContext(), itemsToSaveUris.size() + " video(s) " + mode.toLowerCase() + " in progress...", Toast.LENGTH_SHORT).show();
     }
 
     private void confirmDeleteAll() {

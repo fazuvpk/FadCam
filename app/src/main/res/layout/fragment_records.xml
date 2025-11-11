@@ -147,6 +147,19 @@
     <!-- FABs -->
     <!-- Removed: View mode FAB moved to Records Options side sheet -->
     <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/fab_save_selected"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_margin="16dp"
+        android:visibility="gone"
+        app:srcCompat="@drawable/ic_save"
+        app:backgroundTint="@color/colorPrimary"
+        app:tint="@android:color/white"
+        android:contentDescription="@string/video_menu_save"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
+
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/fab_delete_selected"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
@@ -156,7 +169,7 @@
         app:backgroundTint="@color/danger_red"
         app:tint="@android:color/white"
         app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintStart_toStartOf="parent" />
+        app:layout_constraintStart_toEndOf="@id/fab_save_selected" />
 
     <!-- Navigation FAB for scroll to top/bottom (mini size, circular, dark gray) -->
     <com.google.android.material.floatingactionbutton.FloatingActionButton
